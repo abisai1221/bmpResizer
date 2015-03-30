@@ -1,0 +1,165 @@
+/**
+ * resize.c
+ *
+ * Computer Science 50
+ * Problem Set 4
+ *
+ * Resizes a BMP to user spec.
+ */
+       
+       
+#include <stdio.h>
+#include <stdlib.h>
+ 
+#include "bmp.h"
+ 
+int main(int argc, char* argv[])
+{
+ 
+int n = atoi(argv[1]);
+    // ensure proper usage
+    if (argc != 4)
+    {
+        printf("Usage: ./resize n infile outfile\n");
+        return 1;
+    }
+    if (n < 1 || n > 100)
+    {
+        printf("Resize must be between 1 and 100\n");
+        return 1;
+    }
+ 
+    // remember filenames
+    char* infile = argv[2];
+    char* outfile = argv[3];
+     
+     
+ 
+    // open input file 
+    FILE* inptr = fopen(infile, "r");
+    if (inptr == NULL)
+    {
+        printf("Could not open %s.\n", infile);
+        return 2;
+    }
+ 
+    // open output file
+    FILE* outptr = fopen(outfile, "w");
+    if (outptr == NULL)
+    {
+        fclose(inptr);
+        fprintf(stderr, "Could not create %s.\n", outfile);
+        return 3;
+    }
+ 
+    // read infile's BITMAPFILEHEADER (size of 14 bytes)
+    BITMAPFILEHEADER bf;
+    fread(&bf, sizeof(BITMAPFILEHEADER), 1, inptr);
+ 
+    // read infile's BITMAPINFOHEADER
+    BITMAPINFOHEADER bi;
+    fread(&bi, sizeof(BITMAPINFOHEADER), 1, inptr);
+ 
+    // ensure infile is (likely) a 24-bit uncompressed BMP 4.0
+    if (bf.bfType != 0x4d42 || bf.bfOffBits != 54 || bi.biSize != 40 || 
+        bi.biBitCount != 24 || bi.biCompression != 0)
+    {
+        fclose(outptr);
+        fclose(inptr);
+        fprintf(stderr, "Unsupported file format.\n");
+        return 4;
+    }
+     
+    // create new header structs to place diff values of width, height, size
+    // without changing infile's headers.
+    BITMAPFILEHEADER outptr_bf;
+    BITMAPINFOHEADER outptr_bi; 
+     
+    // write same members of infile header into outfile's headers.
+    outptr_bf = bf;
+    outptr_bi = bi;
+     
+    // change widths and heights of resized image header.
+    outptr_bi.biWidth = bi.biWidth * n;
+    outptr_bi.biHeight = bi.biHeight * n;
+     
+        // this calculates padding for infile
+    int padding = (4 - (bi.biWidth * sizeof(RGBTRIPLE)) % 4) % 4;
+     
+    // calculate padding needed for resized image
+    int resz_pad = (4 - (outptr_bi.biWidth * sizeof(RGBTRIPLE)) % 4) % 4;
+     
+    // calculate changes to biSizeImage and bfSize
+     
+    // total number of bytes within bmp image icluding padding
+    outptr_bi.biSizeImage = ((outptr_bi.biWidth * 3) + resz_pad) * outptr_bi.biWidth;
+     
+    // total bytes in the whole bmp file
+    outptr_bf.bfSize = outptr_bi.biSizeImage + 54;
+     
+    // write outfile's BITMAPFILEHEADER
+    fwrite(&outptr_bf, sizeof(BITMAPFILEHEADER), 1, outptr);
+ 
+    // write outfile's BITMAPINFOHEADER
+    fwrite(&outptr_bi, sizeof(BITMAPINFOHEADER), 1, outptr);
+     
+    // counter to monitor lines written into outptr
+    int c = 0;
+     
+    // iterate over outfile's bmp height
+    for (int i = 0, biHeight = abs(outptr_bi.biHeight); i < biHeight; i++)
+    {
+        // iterate over pixels in scanline
+        //this loop is supposed to only iterate over width of inptr
+        for (int j = 0; j < bi.biWidth; j++)
+        {
+            // temporary storage
+            RGBTRIPLE triple;
+             
+            // read 3 byte pixel from infile
+            fread(&triple, sizeof(RGBTRIPLE), 1, inptr);
+                        
+            // write this fread into outptr n times to expand horizontally
+            // so fread reads 3 bytes and writes it into first 3 bytes of outptr
+            // then file position indicator stays at the 4th byte ready to write another 3 bytes.
+            // until k=n
+            for(int k = 0; k < n ;k++)
+            {
+                fwrite(&triple, sizeof(RGBTRIPLE), 1, outptr);
+            }
+             
+        }
+         
+        // adds padding to outptr bmp if needed        
+        for (int p = 0; p < resz_pad; p++)
+        {
+            fputc(0x00, outptr);
+        }
+                 
+        // move point indic of inptr back the width of scanline in bytes.
+        // to the begining of current scanline
+        // if vertical resize hasn't completed.
+        if (c < n - 1)
+        {
+            fseek(inptr, -bi.biWidth * sizeof(RGBTRIPLE), SEEK_CUR);
+            c++;
+        }
+        // else skip over any padding on current inptr scanline
+        // and restart c counter.
+        else
+        {
+            c = 0;
+            fseek(inptr, padding, SEEK_CUR);
+        }
+         
+    }
+ 
+    // close infile
+    fclose(inptr);
+ 
+    // close outfile
+    fclose(outptr);
+ 
+    // that's all folks
+    return 0;
+}
